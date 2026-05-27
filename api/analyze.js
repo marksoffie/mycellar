@@ -32,7 +32,18 @@ export default async function handler(req, res) {
             },
             {
               type: 'text',
-              text: 'This is a wine bottle label. Extract the wine information and respond ONLY with a JSON object (no markdown, no backticks, no extra text) with these exact keys: name, producer, grape, vintage, region, country, type (must be one of: White, Red, Rosé, Sparkling, Dessert, Orange), price (empty string if not visible), notes (1 short sentence of typical tasting notes for this wine style). If a field is not visible use empty string. Return only the JSON object.'
+              text: `This is a wine bottle label. Extract the wine information and respond ONLY with a JSON object (no markdown, no backticks, no extra text) with these exact keys:
+- name: the wine name
+- producer: the producer or winery name
+- grape: the grape variety or varieties
+- vintage: the year
+- region: the wine region
+- country: the country of origin
+- type: must be exactly one of: White, Red, Rosé, Sparkling, Dessert, Orange
+- price: estimate the typical retail price range in USD based on the producer, region and wine style (e.g. "$15-20" or "$30-40"). Always provide a price estimate even if not on the label.
+- notes: 1 short sentence of typical tasting notes for this specific wine style and region
+
+Return only the JSON object, nothing else.`
             }
           ]
         }]
@@ -47,14 +58,7 @@ export default async function handler(req, res) {
 
     const data = await response.json();
     const text = data.content?.[0]?.text || '';
-
-    // Clean up the response — remove any markdown formatting
-    const cleaned = text
-      .replace(/```json/gi, '')
-      .replace(/```/g, '')
-      .trim();
-
-    // Find the JSON object in the response
+    const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       console.error('No JSON found in:', cleaned);
