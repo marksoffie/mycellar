@@ -22,18 +22,50 @@ export default async function handler(req, res) {
         messages: [{
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: image } },
-            { type: 'text', text: 'This is a wine bottle label. Extract the wine information and respond ONLY with a JSON object (no markdown, no backticks) with these exact keys: name, producer, grape, vintage, region, country, type (one of: White, Red, Rosé, Sparkling, Dessert, Orange), price (empty string if not visible), notes (1 short sentence of typical tasting notes for this wine style). If a field is not visible use empty string.' }
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: mediaType || 'image/jpeg',
+                data: image
+              }
+            },
+            {
+              type: 'text',
+              text: 'This is a wine bottle label. Extract the wine information and respond ONLY with a JSON object (no markdown, no backticks, no extra text) with these exact keys: name, producer, grape, vintage, region, country, type (must be one of: White, Red, Rosé, Sparkling, Dessert, Orange), price (empty string if not visible), notes (1 short sentence of typical tasting notes for this wine style). If a field is not visible use empty string. Return only the JSON object.'
+            }
           ]
         }]
       })
     });
 
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('Anthropic error:', errText);
+      return res.status(500).json({ error: 'Anthropic API error', detail: errText });
+    }
+
     const data = await response.json();
     const text = data.content?.[0]?.text || '';
-    const info = JSON.parse(text.replace(/```json|```/g, '').trim());
-    res.status(200).json(info);
+
+    // Clean up the response — remove any markdown formatting
+    const cleaned = text
+      .replace(/```json/gi, '')
+      .replace(/```/g, '')
+      .trim();
+
+    // Find the JSON object in the response
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error('No JSON found in:', cleaned);
+      return res.status(500).json({ error: 'Could not parse wine info' });
+    }
+
+    const info = JSON.parse(jsonMatch[0]);
+    return res.status(200).json(info);
+
   } catch (e) {
-    res.status(500).json({ error: 'Could not analyze label' });
+    console.error('Handler error:', e);
+    return res.status(500).json({ error: e.message || 'Unknown error' });
   }
 }
