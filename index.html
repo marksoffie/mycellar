@@ -548,11 +548,11 @@ async function init() {
   const token = params.get('token');
   const type = params.get('type');
   if (token && type === 'recovery') {
-    // Exchange the token for a session
-    const { error } = await db.auth.verifyOtp({ token_hash: token, type: 'recovery' });
     showAuthScreen();
     showResetForm();
-    window.history.replaceState({}, document.title, window.location.pathname);
+    // Store token for use when user submits new password
+    window._recoveryToken = token;
+    // Do NOT clear URL yet — we need the token when they submit
     return;
   }
 
@@ -654,13 +654,48 @@ async function doResetPassword() {
   if (pw !== pw2) { errEl.textContent = 'Passwords do not match.'; return; }
   btn.disabled = true; btn.textContent = 'Saving…';
   errEl.textContent = '';
+
+  // Try to get session first — needed before updateUser
+  const { data: { session } } = await db.auth.getSession();
+  if (!session) {
+    // Try exchanging the token from URL one more time
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    if (token) {
+      const { error: otpError } = await db.auth.verifyOtp({ token_hash: token, type: 'recovery' });
+      if (otpError) {
+        errEl.textContent = 'Reset link has expired. Please request a new one.';
+        errEl.style.color = '#c0392b';
+        btn.disabled = false; btn.textContent = 'Set New Password →';
+        return;
+      }
+    } else {
+      errEl.textContent = 'Session expired. Please request a new reset link.';
+      errEl.style.color = '#c0392b';
+      btn.disabled = false; btn.textContent = 'Set New Password →';
+      return;
+    }
+  }
+
   const { error } = await db.auth.updateUser({ password: pw });
   if (error) {
     errEl.textContent = error.message;
+    errEl.style.color = '#c0392b';
     btn.disabled = false; btn.textContent = 'Set New Password →';
   } else {
     showToast('Password updated! Signing you in… 🍷');
-    setTimeout(() => { window.location.hash = ''; }, 1500);
+    errEl.style.color = 'var(--success)';
+    errEl.textContent = 'Password updated successfully!';
+    setTimeout(async () => {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      const { data: { session } } = await db.auth.getSession();
+      if (session?.user) {
+        currentUser = session.user;
+        await enterApp();
+      } else {
+        showLoginForm();
+      }
+    }, 1500);
   }
 }
 
