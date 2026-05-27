@@ -520,29 +520,50 @@ let activeCountryFilter = '';
 
 // ── INIT ──
 async function init() {
-  const { data: { session } } = await db.auth.getSession();
   document.getElementById('full-loader').style.display = 'none';
 
-  // Check if this is a password recovery redirect
-  const hash = window.location.hash;
-  if (hash && hash.includes('type=recovery')) {
+  // Check all possible locations for recovery token
+  const hash = window.location.hash || '';
+  const search = window.location.search || '';
+  const fullUrl = window.location.href;
+
+  const isRecovery = 
+    hash.includes('type=recovery') || 
+    search.includes('type=recovery') ||
+    hash.includes('access_token') && hash.includes('recovery') ||
+    fullUrl.includes('type=recovery');
+
+  if (isRecovery) {
+    // Let Supabase process the token from URL
+    await db.auth.getSession();
     showAuthScreen();
     showResetForm();
+    // Clear the URL so it looks clean
+    window.history.replaceState({}, document.title, window.location.pathname);
     return;
   }
 
-  if (session?.user) {
-    currentUser = session.user;
-    await enterApp();
-  } else {
+  // Handle recovery via query param token
+  const params = new URLSearchParams(search);
+  const token = params.get('token');
+  const type = params.get('type');
+  if (token && type === 'recovery') {
+    // Exchange the token for a session
+    const { error } = await db.auth.verifyOtp({ token_hash: token, type: 'recovery' });
     showAuthScreen();
+    showResetForm();
+    window.history.replaceState({}, document.title, window.location.pathname);
+    return;
   }
 
+  // Normal auth state listener
   db.auth.onAuthStateChange(async (event, session) => {
     if (event === 'PASSWORD_RECOVERY') {
       showAuthScreen();
       showResetForm();
-    } else if (event === 'SIGNED_IN' && session?.user && !document.getElementById('auth-form-reset').style.display !== 'none') {
+    } else if (event === 'SIGNED_IN' && session?.user) {
+      const resetForm = document.getElementById('auth-form-reset');
+      if (resetForm && resetForm.style.display === 'block') return;
       currentUser = session.user;
       await enterApp();
     } else if (event === 'SIGNED_OUT') {
@@ -551,6 +572,14 @@ async function init() {
       showAuthScreen();
     }
   });
+
+  const { data: { session } } = await db.auth.getSession();
+  if (session?.user) {
+    currentUser = session.user;
+    await enterApp();
+  } else {
+    showAuthScreen();
+  }
 }
 
 // ── AUTH ──
