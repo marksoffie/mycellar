@@ -1110,54 +1110,38 @@ async function saveWine() {
   const saveBtn = document.querySelector('#add-overlay .btn-primary');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
-  try {
-    const wine = {
-      user_id: currentUser.id,
-      name,
-      producer: document.getElementById('f-producer').value.trim(),
-      grape: document.getElementById('f-grape').value.trim(),
-      vintage: document.getElementById('f-vintage').value.trim(),
-      region: document.getElementById('f-region').value.trim(),
-      country: document.getElementById('f-country').value.trim(),
-      type: document.getElementById('f-type').value,
-      price: document.getElementById('f-price').value.trim(),
-      rating: formRating,
-      notes: document.getElementById('f-notes').value.trim(),
-      archived: false,
-      photo: null,
-      drink_window: '',
-      added_date: new Date().toISOString().split('T')[0],
-    };
+  const wine = {
+    user_id: currentUser.id,
+    name,
+    producer: document.getElementById('f-producer').value.trim(),
+    grape: document.getElementById('f-grape').value.trim(),
+    vintage: document.getElementById('f-vintage').value.trim(),
+    region: document.getElementById('f-region').value.trim(),
+    country: document.getElementById('f-country').value.trim(),
+    type: document.getElementById('f-type').value,
+    price: document.getElementById('f-price').value.trim(),
+    rating: formRating,
+    notes: document.getElementById('f-notes').value.trim(),
+    archived: false,
+    photo: null,
+    drink_window: '',
+    added_date: new Date().toISOString().split('T')[0],
+  };
 
-    const { data, error } = await db.from('wines').insert([wine]).select().single();
-    if (error) {
-      console.error('Save error:', error);
-      showToast('Error: ' + (error.message || 'Could not save'));
-      return;
-    }
+  const { data, error } = await db.from('wines').insert([wine]).select().single();
 
-    // Now try to upload photo separately if we have one
-    if (uploadedPhotoData && data) {
-      try {
-        const compressed = await compressImage(uploadedPhotoData, 400);
-        await db.from('wines').update({ photo: compressed }).eq('id', data.id);
-        data.photo = compressed;
-      } catch(photoErr) {
-        console.warn('Photo save failed, wine saved without photo');
-      }
-    }
+  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save to Cellar'; }
 
-    wines.unshift(data);
-    closeAdd();
-    renderCellar();
-    showToast('Added to your cellar 🍷');
-
-  } catch(e) {
-    console.error('Save error:', e);
-    showToast('Error saving — try again');
-  } finally {
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save to Cellar'; }
+  if (error) {
+    console.error('Save error:', JSON.stringify(error));
+    showToast('Error: ' + (error.message || 'Could not save'));
+    return;
   }
+
+  wines.unshift(data);
+  closeAdd();
+  renderCellar();
+  showToast('Added to your cellar 🍷');
 }
 
 // ── DISCOVER ──
