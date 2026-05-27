@@ -1111,12 +1111,6 @@ async function saveWine() {
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
   try {
-    // Compress photo if present
-    let photo = null;
-    if (uploadedPhotoData) {
-      photo = await compressImage(uploadedPhotoData, 600);
-    }
-
     const wine = {
       user_id: currentUser.id,
       name,
@@ -1130,18 +1124,34 @@ async function saveWine() {
       rating: formRating,
       notes: document.getElementById('f-notes').value.trim(),
       archived: false,
-      photo: photo,
+      photo: null,
       drink_window: '',
       added_date: new Date().toISOString().split('T')[0],
     };
 
-    const saved = await saveWineToDb(wine);
-    if (saved) {
-      wines.unshift(saved);
-      closeAdd();
-      renderCellar();
-      showToast('Added to your cellar 🍷');
+    const { data, error } = await db.from('wines').insert([wine]).select().single();
+    if (error) {
+      console.error('Save error:', error);
+      showToast('Error: ' + (error.message || 'Could not save'));
+      return;
     }
+
+    // Now try to upload photo separately if we have one
+    if (uploadedPhotoData && data) {
+      try {
+        const compressed = await compressImage(uploadedPhotoData, 400);
+        await db.from('wines').update({ photo: compressed }).eq('id', data.id);
+        data.photo = compressed;
+      } catch(photoErr) {
+        console.warn('Photo save failed, wine saved without photo');
+      }
+    }
+
+    wines.unshift(data);
+    closeAdd();
+    renderCellar();
+    showToast('Added to your cellar 🍷');
+
   } catch(e) {
     console.error('Save error:', e);
     showToast('Error saving — try again');
