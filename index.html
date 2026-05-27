@@ -1034,8 +1034,21 @@ async function analyzeLabel(imageData) {
       body: JSON.stringify({ image: base64, mediaType })
     });
 
-    if (!response.ok) throw new Error('API error');
-    const info = await response.json();
+    const raw = await response.text();
+    let info;
+    try {
+      info = JSON.parse(raw);
+    } catch(parseErr) {
+      console.error('Parse error:', raw);
+      showToast('Could not read label — fill in manually');
+      return;
+    }
+
+    if (info.error) {
+      console.error('API error:', info.error);
+      showToast('Could not read label — fill in manually');
+      return;
+    }
 
     if (info.name) document.getElementById('f-name').value = info.name;
     if (info.producer) document.getElementById('f-producer').value = info.producer;
@@ -1048,6 +1061,7 @@ async function analyzeLabel(imageData) {
     if (info.notes) document.getElementById('f-notes').value = info.notes;
     showToast('Label read successfully ✨');
   } catch(e) {
+    console.error('Analyze error:', e);
     showToast('Could not read label — fill in manually');
   } finally {
     document.getElementById('ai-loading').classList.remove('show');
