@@ -519,64 +519,52 @@ let activeTypeFilter = '';
 let activeCountryFilter = '';
 
 // ── INIT ──
+let appEntered = false;
+let recoveryMode = false;
+
 async function init() {
   document.getElementById('full-loader').style.display = 'none';
 
-  // Check all possible locations for recovery token
   const hash = window.location.hash || '';
   const search = window.location.search || '';
-  const fullUrl = window.location.href;
+  recoveryMode = hash.includes('type=recovery') || search.includes('type=recovery');
 
-  const isRecovery = 
-    hash.includes('type=recovery') || 
-    search.includes('type=recovery') ||
-    hash.includes('access_token') && hash.includes('recovery') ||
-    fullUrl.includes('type=recovery');
-
-  if (isRecovery) {
-    // Let Supabase process the token from URL
-    await db.auth.getSession();
-    showAuthScreen();
-    showResetForm();
-    // Clear the URL so it looks clean
-    window.history.replaceState({}, document.title, window.location.pathname);
-    return;
-  }
-
-  // Handle recovery via query param token
-  const params = new URLSearchParams(search);
-  const token = params.get('token');
-  const type = params.get('type');
-  if (token && type === 'recovery') {
-    showAuthScreen();
-    showResetForm();
-    // Store token for use when user submits new password
-    window._recoveryToken = token;
-    // Do NOT clear URL yet — we need the token when they submit
-    return;
-  }
-
-  // Normal auth state listener
-  db.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'PASSWORD_RECOVERY') {
-      showAuthScreen();
-      showResetForm();
-    } else if (event === 'SIGNED_IN' && session?.user) {
-      const resetForm = document.getElementById('auth-form-reset');
-      if (resetForm && resetForm.style.display === 'block') return;
-      currentUser = session.user;
-      await enterApp();
-    } else if (event === 'SIGNED_OUT') {
-      currentUser = null;
-      wines = [];
-      showAuthScreen();
-    }
+  // IMPORTANT: never await Supabase calls directly inside this callback.
+  // supabase-js holds an internal auth lock while it runs, so awaiting another
+  // Supabase call here deadlocks every later request (this caused "Saving..." to hang).
+  // Deferring with setTimeout lets the lock release first.
+  db.auth.onAuthStateChange((event, session) => {
+    setTimeout(async () => {
+      if (event === 'PASSWORD_RECOVERY') {
+        recoveryMode = true;
+        showAuthScreen();
+        showResetForm();
+      } else if (event === 'SIGNED_IN' && session?.user) {
+        if (recoveryMode || appEntered) return;
+        currentUser = session.user;
+        await enterApp();
+      } else if (event === 'SIGNED_OUT') {
+        currentUser = null;
+        wines = [];
+        appEntered = false;
+        showAuthScreen();
+        showLoginForm();
+      }
+    }, 0);
   });
+
+  // Password-reset link: supabase-js reads the token from the URL itself and
+  // fires PASSWORD_RECOVERY. Just show the reset form.
+  if (recoveryMode) {
+    showAuthScreen();
+    showResetForm();
+    return;
+  }
 
   const { data: { session } } = await db.auth.getSession();
   if (session?.user) {
     currentUser = session.user;
-    await enterApp();
+    if (!appEntered) await enterApp();
   } else {
     showAuthScreen();
   }
@@ -649,54 +637,35 @@ async function doResetPassword() {
   const pw2 = document.getElementById('reset-password2').value;
   const errEl = document.getElementById('reset-error');
   const btn = document.getElementById('reset-btn');
+  errEl.style.color = '#c0392b';
   if (!pw || !pw2) { errEl.textContent = 'Please fill in both fields.'; return; }
   if (pw.length < 6) { errEl.textContent = 'Password must be at least 6 characters.'; return; }
   if (pw !== pw2) { errEl.textContent = 'Passwords do not match.'; return; }
   btn.disabled = true; btn.textContent = 'Saving…';
   errEl.textContent = '';
 
-  // Try to get session first — needed before updateUser
   const { data: { session } } = await db.auth.getSession();
   if (!session) {
-    // Try exchanging the token from URL one more time
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get('token');
-    if (token) {
-      const { error: otpError } = await db.auth.verifyOtp({ token_hash: token, type: 'recovery' });
-      if (otpError) {
-        errEl.textContent = 'Reset link has expired. Please request a new one.';
-        errEl.style.color = '#c0392b';
-        btn.disabled = false; btn.textContent = 'Set New Password →';
-        return;
-      }
-    } else {
-      errEl.textContent = 'Session expired. Please request a new reset link.';
-      errEl.style.color = '#c0392b';
-      btn.disabled = false; btn.textContent = 'Set New Password →';
-      return;
-    }
+    errEl.textContent = 'This reset link has expired or was already used. Please request a new one.';
+    btn.disabled = false; btn.textContent = 'Set New Password →';
+    return;
   }
 
   const { error } = await db.auth.updateUser({ password: pw });
   if (error) {
     errEl.textContent = error.message;
-    errEl.style.color = '#c0392b';
     btn.disabled = false; btn.textContent = 'Set New Password →';
-  } else {
-    showToast('Password updated! Signing you in… 🍷');
-    errEl.style.color = 'var(--success)';
-    errEl.textContent = 'Password updated successfully!';
-    setTimeout(async () => {
-      window.history.replaceState({}, document.title, window.location.pathname);
-      const { data: { session } } = await db.auth.getSession();
-      if (session?.user) {
-        currentUser = session.user;
-        await enterApp();
-      } else {
-        showLoginForm();
-      }
-    }, 1500);
+    return;
   }
+  showToast('Password updated! Signing you in… 🍷');
+  errEl.style.color = 'var(--success)';
+  errEl.textContent = 'Password updated successfully!';
+  recoveryMode = false;
+  window.history.replaceState({}, document.title, window.location.pathname);
+  setTimeout(async () => {
+    currentUser = session.user;
+    if (!appEntered) await enterApp();
+  }, 1200);
 }
 
 async function doLogin() {
@@ -744,6 +713,7 @@ async function doLogout() {
 
 // ── APP ENTRY ──
 async function enterApp() {
+  appEntered = true;
   document.getElementById('bottom-nav').style.display = 'flex';
   document.getElementById('fab').style.display = 'flex';
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -1110,38 +1080,58 @@ async function saveWine() {
   const saveBtn = document.querySelector('#add-overlay .btn-primary');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
 
-  const wine = {
-    user_id: currentUser.id,
-    name,
-    producer: document.getElementById('f-producer').value.trim(),
-    grape: document.getElementById('f-grape').value.trim(),
-    vintage: document.getElementById('f-vintage').value.trim(),
-    region: document.getElementById('f-region').value.trim(),
-    country: document.getElementById('f-country').value.trim(),
-    type: document.getElementById('f-type').value,
-    price: document.getElementById('f-price').value.trim(),
-    rating: formRating,
-    notes: document.getElementById('f-notes').value.trim(),
-    archived: false,
-    photo: null,
-    drink_window: '',
-    added_date: new Date().toISOString().split('T')[0],
-  };
+  try {
+    // Re-fetch session to make sure we have a valid token
+    const { data: { session }, error: sessionError } = await db.auth.getSession();
+    if (sessionError || !session) {
+      showToast('Session expired — please sign in again');
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save to Cellar'; }
+      doLogout();
+      return;
+    }
 
-  const { data, error } = await db.from('wines').insert([wine]).select().single();
+    currentUser = session.user;
 
-  if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save to Cellar'; }
+    const wine = {
+      user_id: currentUser.id,
+      name,
+      producer: document.getElementById('f-producer').value.trim(),
+      grape: document.getElementById('f-grape').value.trim(),
+      vintage: document.getElementById('f-vintage').value.trim(),
+      region: document.getElementById('f-region').value.trim(),
+      country: document.getElementById('f-country').value.trim(),
+      type: document.getElementById('f-type').value,
+      price: document.getElementById('f-price').value.trim(),
+      rating: formRating,
+      notes: document.getElementById('f-notes').value.trim(),
+      archived: false,
+      photo: null,
+      drink_window: '',
+      added_date: new Date().toISOString().split('T')[0],
+    };
 
-  if (error) {
-    console.error('Save error:', JSON.stringify(error));
-    showToast('Error: ' + (error.message || 'Could not save'));
-    return;
+    console.log('Saving wine:', wine.name, 'for user:', wine.user_id);
+
+    const { data, error } = await db.from('wines').insert([wine]).select().single();
+
+    if (error) {
+      console.error('Insert error:', JSON.stringify(error));
+      showToast('Error: ' + (error.message || 'Could not save'));
+      return;
+    }
+
+    console.log('Saved successfully:', data);
+    wines.unshift(data);
+    closeAdd();
+    renderCellar();
+    showToast('Added to your cellar 🍷');
+
+  } catch(e) {
+    console.error('Unexpected error:', e.message);
+    showToast('Unexpected error — try again');
+  } finally {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save to Cellar'; }
   }
-
-  wines.unshift(data);
-  closeAdd();
-  renderCellar();
-  showToast('Added to your cellar 🍷');
 }
 
 // ── DISCOVER ──
