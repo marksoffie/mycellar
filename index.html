@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#8b1a2a">
+<meta name="apple-mobile-web-app-title" content="MyCellar">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>MyCellar</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -243,6 +246,35 @@ body {
 .discover-hero-sub { font-size:13px; color:var(--ink3); }
 .section-title-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
 .section-title { font-family:'DM Serif Display',serif; font-size:18px; color:var(--ink); }
+
+/* SORT / QTY / SOMMELIER / FATAL */
+.sort-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-4px 0 14px; }
+.sort-row label { font-size:11px; text-transform:uppercase; letter-spacing:1.5px; color:var(--ink3); font-weight:500; }
+.sort-row select { flex:1; max-width:220px; padding:8px 12px; border:1px solid var(--border2); border-radius:50px; font-family:'DM Sans',sans-serif; font-size:13px; background:var(--bg2); color:var(--ink); outline:none; }
+.pill-qty { background:var(--accent); color:#fff; }
+.qty-row { display:flex; align-items:center; gap:14px; background:var(--bg2); border-radius:var(--radius-sm); padding:10px 14px; margin-bottom:24px; }
+.qty-label { flex:1; font-size:13px; color:var(--ink2); }
+.qty-num { font-family:'DM Serif Display',serif; font-size:24px; min-width:28px; text-align:center; color:var(--ink); }
+.qty-btn { width:38px; height:38px; border-radius:50%; border:1px solid var(--border2); background:var(--bg); font-size:20px; color:var(--ink); cursor:pointer; line-height:1; }
+.sommelier-box { background:var(--bg2); border-radius:var(--radius); padding:18px; margin-bottom:22px; }
+.sommelier-box input { width:100%; padding:12px 16px; border:1px solid var(--border2); border-radius:50px; font-family:'DM Sans',sans-serif; font-size:14px; background:var(--bg); color:var(--ink); outline:none; margin:12px 0; }
+.sommelier-btns { display:flex; gap:8px; }
+.sommelier-btns .btn { padding:12px 8px; font-size:13px; margin-top:0; flex:1; }
+.sommelier-btns .btn:disabled { opacity:0.5; }
+.ai-result { margin-top:14px; }
+.ai-intro { font-size:14px; color:var(--ink2); line-height:1.5; margin-bottom:10px; }
+.ai-pick { background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:14px; margin-bottom:10px; }
+.ai-pick-name { font-family:'DM Serif Display',serif; font-size:16px; color:var(--ink); margin-bottom:3px; }
+.ai-pick-meta { font-size:11px; color:var(--ink3); margin-bottom:6px; }
+.ai-pick-reason { font-size:13px; color:var(--ink2); line-height:1.5; }
+.ai-pick-serving { font-size:12px; color:var(--accent); margin-top:6px; }
+.ai-pick-open { margin-top:8px; font-size:12px; color:var(--accent); font-weight:500; cursor:pointer; display:inline-block; }
+.fatal { position:fixed; inset:0; background:var(--bg); z-index:300; display:none; flex-direction:column; align-items:center; justify-content:center; padding:32px; text-align:center; gap:14px; }
+.fatal.show { display:flex; }
+.fatal .btn { max-width:280px; }
+.detail-actions .btn { margin-top:0; }
+.detail-actions .btn-row { display:flex; gap:10px; }
+.detail-actions .btn-row .btn { flex:1; padding:13px 8px; font-size:14px; }
 </style>
 </head>
 <body>
@@ -344,6 +376,17 @@ body {
       <span class="search-icon">🔍</span>
       <input type="text" placeholder="Search wines…" id="cellar-search" oninput="renderCellar()">
     </div>
+    <div class="sort-row">
+      <label for="cellar-sort">Sort by</label>
+      <select id="cellar-sort" onchange="setSort(this.value)">
+        <option value="newest">Newest added</option>
+        <option value="name">Name A–Z</option>
+        <option value="rating">Highest rated</option>
+        <option value="vintage">Vintage (newest)</option>
+        <option value="price_high">Price (high → low)</option>
+        <option value="price_low">Price (low → high)</option>
+      </select>
+    </div>
     <div id="cellar-list"></div>
   </div>
 </div>
@@ -354,12 +397,14 @@ body {
     <div class="detail-hero-placeholder">🍷</div>
   </div>
   <button class="back-btn" onclick="goBack()">←</button>
-  <div style="flex:1;overflow-y:auto;padding-bottom:140px;">
+  <div style="flex:1;overflow-y:auto;padding-bottom:200px;">
     <div class="detail-content">
       <div class="detail-name" id="detail-name"></div>
       <div class="detail-producer" id="detail-producer"></div>
       <div class="detail-pills" id="detail-pills"></div>
       <div class="detail-grid" id="detail-grid"></div>
+      <div class="detail-section-title">Bottles</div>
+      <div class="qty-row" id="detail-qty"></div>
       <div class="detail-section-title">Your Rating</div>
       <div class="stars" id="detail-stars" style="margin-bottom:24px;font-size:22px;gap:6px;"></div>
       <div id="detail-notes-wrap">
@@ -377,13 +422,16 @@ body {
     <div class="topbar-title">Dis<span>cover</span></div>
   </div>
   <div class="scroll-content">
-    <div class="discover-hero">
-      <div style="font-size:40px;margin-bottom:12px;">🌍</div>
-      <div class="discover-hero-title">Explore the world of wine</div>
-      <div class="discover-hero-sub">Based on your collection, you might love these</div>
+    <div class="sommelier-box">
+      <div class="discover-hero-title">🍷 Ask your sommelier</div>
+      <div class="discover-hero-sub" style="margin-top:4px;">Tell me what you're eating or celebrating</div>
+      <input id="ai-prompt" type="text" maxlength="200" placeholder="e.g. grilled salmon, pizza night, birthday dinner" onkeydown="if(event.key==='Enter')askSommelier('cellar')">
+      <div class="sommelier-btns">
+        <button class="btn btn-primary" onclick="askSommelier('cellar')">Pick from my cellar</button>
+        <button class="btn btn-secondary" onclick="askSommelier('explore')">Wines to try next</button>
+      </div>
+      <div class="ai-result" id="ai-result"></div>
     </div>
-    <div class="section-title-row"><div class="section-title">Top Picks for You</div></div>
-    <div id="discover-recs"></div>
     <div style="margin-top:24px;" class="section-title-row"><div class="section-title">Your Collection by Region</div></div>
     <div id="region-breakdown" style="background:var(--bg2);border-radius:var(--radius);padding:16px;"></div>
   </div>
@@ -445,7 +493,7 @@ body {
 <div class="overlay" id="add-overlay" onclick="closeAddOverlay(event)">
   <div class="sheet">
     <div class="sheet-handle"></div>
-    <div class="sheet-title">Add a Bottle</div>
+    <div class="sheet-title" id="sheet-title">Add a Bottle</div>
     <div class="photo-upload" id="photo-upload-zone" onclick="document.getElementById('photo-input').click()">
       <div class="photo-upload-icon">📸</div>
       <div class="photo-upload-title">Take a photo or choose from library</div>
@@ -481,6 +529,10 @@ body {
       </div>
       <div class="form-group"><label class="form-label">Price</label><input class="form-input" id="f-price" placeholder="e.g. $25–35" type="text"></div>
     </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Bottles</label><input class="form-input" id="f-qty" type="number" inputmode="numeric" min="1" max="999" value="1"></div>
+      <div class="form-group"><label class="form-label">Drink by</label><input class="form-input" id="f-drink" placeholder="e.g. 2028" type="text"></div>
+    </div>
     <div class="form-group">
       <label class="form-label">Your Rating</label>
       <div class="rating-stars" id="form-rating">
@@ -492,9 +544,18 @@ body {
       </div>
     </div>
     <div class="form-group"><label class="form-label">Tasting Notes</label><textarea class="form-input" id="f-notes" rows="3" placeholder="Crisp, mineral, citrus zest…" style="resize:none;"></textarea></div>
-    <button class="btn btn-primary" onclick="saveWine()">Save to Cellar</button>
+    <button class="btn btn-primary" id="save-btn" onclick="saveWine()">Save to Cellar</button>
     <button class="btn btn-secondary" onclick="closeAdd()">Cancel</button>
   </div>
+</div>
+
+<!-- RECOVERY SCREEN -->
+<div class="fatal" id="fatal">
+  <div style="font-size:48px;">🍷</div>
+  <div class="detail-name" style="font-size:22px;">Something went wrong</div>
+  <div style="font-size:14px;color:var(--ink2);">MyCellar couldn't start. Your bottles are safe.</div>
+  <button class="btn btn-primary" onclick="location.reload()">Reload</button>
+  <button class="btn btn-secondary" onclick="resetApp()">Sign out and start fresh</button>
 </div>
 
 <!-- TOAST -->
@@ -504,6 +565,10 @@ body {
 // ── SUPABASE INIT ──
 const SUPABASE_URL = 'https://yoisoqpywoticivriivo.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_WIs6Z_HN4WUSQdCAAQHRVg_A5BhMYVI';
+if (typeof supabase === 'undefined') {
+  document.getElementById('full-loader').innerHTML = '<div style="text-align:center;padding:32px;font-size:15px;">Could not load the app.<br>Check your connection and <a href="" style="color:var(--accent)">reload</a>.</div>';
+  throw new Error('Supabase library failed to load');
+}
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -514,6 +579,10 @@ let currentTab = 'cellar';
 let currentWineId = null;
 let formRating = 0;
 let uploadedPhotoData = null;
+let editingId = null;
+let existingPhotoUrl = null;
+let sortMode = 'newest';
+try { sortMode = localStorage.getItem('mc_sort') || 'newest'; } catch (e) {}
 let previousScreen = 'cellar';
 let activeTypeFilter = '';
 let activeCountryFilter = '';
@@ -791,7 +860,7 @@ function buildCountryChips() {
   const wrap = document.getElementById('country-filters');
   if (!wrap) return;
   wrap.innerHTML = `<button class="chip ${!activeCountryFilter ? 'active' : ''}" onclick="setFilter('country','',this)">All</button>` +
-    countries.map(c => `<button class="chip ${activeCountryFilter===c ? 'active' : ''}" onclick="setFilter('country','${c.replace(/'/g,"\\'")}',this)">${countryFlag(c)} ${c}</button>`).join('');
+    countries.map(c => `<button class="chip ${activeCountryFilter===c ? 'active' : ''}" data-v="${esc(c)}" onclick="setFilter('country',this.dataset.v,this)">${countryFlag(c)} ${esc(c)}</button>`).join('');
 }
 
 // ── RENDER STATS ──
@@ -800,8 +869,9 @@ function renderStats() {
   const archived = wines.filter(w => w.archived);
   const rated = active.filter(w => w.rating > 0);
   const avgRating = rated.length ? (rated.reduce((s,w) => s + w.rating, 0) / rated.length).toFixed(1) : '—';
+  const bottleTotal = active.reduce((n, w) => n + qtyOf(w), 0);
   document.getElementById('stats-bar').innerHTML = `
-    <div class="stat-card"><div class="stat-num">${active.length}</div><div class="stat-lbl">In Cellar</div></div>
+    <div class="stat-card"><div class="stat-num">${bottleTotal}</div><div class="stat-lbl">In Cellar</div></div>
     <div class="stat-card"><div class="stat-num">${archived.length}</div><div class="stat-lbl">Archived</div></div>
     <div class="stat-card"><div class="stat-num">${avgRating}</div><div class="stat-lbl">Avg Rating</div></div>
   `;
@@ -818,6 +888,17 @@ function renderCellar() {
     const inCountry = !activeCountryFilter || w.country === activeCountryFilter;
     return inTab && inSearch && inType && inCountry;
   });
+  const sorters = {
+    newest: (a, b) => b.id - a.id,
+    name: (a, b) => String(a.name).localeCompare(String(b.name)),
+    rating: (a, b) => (b.rating || 0) - (a.rating || 0) || String(a.name).localeCompare(String(b.name)),
+    vintage: (a, b) => (parseInt(b.vintage, 10) || 0) - (parseInt(a.vintage, 10) || 0),
+    price_high: (a, b) => priceNum(b.price) - priceNum(a.price),
+    price_low: (a, b) => priceNum(a.price) - priceNum(b.price),
+  };
+  list.sort(sorters[sortMode] || sorters.newest);
+  const sortEl = document.getElementById('cellar-sort');
+  if (sortEl && sortEl.value !== sortMode) sortEl.value = sortMode;
   renderStats();
   if (!list.length) {
     document.getElementById('cellar-list').innerHTML = `
@@ -832,22 +913,23 @@ function renderCellar() {
     <div class="wine-card" onclick="openDetail(${w.id})">
       <div class="wine-card-inner">
         <div class="wine-img-wrap">
-          ${w.photo ? `<img src="${w.photo}" alt="${w.name}" loading="lazy" decoding="async">` : `<div class="wine-img-placeholder">${typeEmoji(w.type)}</div>`}
+          ${w.photo ? `<img src="${esc(w.photo)}" alt="${esc(w.name)}" loading="lazy" decoding="async">` : `<div class="wine-img-placeholder">${typeEmoji(w.type)}</div>`}
         </div>
         <div class="wine-info">
           <div>
-            <div class="wine-name">${w.name}</div>
-            <div class="wine-producer">${w.producer || ''}</div>
+            <div class="wine-name">${esc(w.name)}</div>
+            <div class="wine-producer">${esc(w.producer)}</div>
             <div class="wine-meta">
-              <span class="pill pill-type">${w.type}</span>
-              ${w.vintage ? `<span class="pill pill-vintage">${w.vintage}</span>` : ''}
-              ${w.country ? `<span class="pill pill-country">${countryFlag(w.country)} ${w.country}</span>` : ''}
+              <span class="pill pill-type">${esc(w.type)}</span>
+              ${qtyOf(w) > 1 && !w.archived ? `<span class="pill pill-qty">×${qtyOf(w)}</span>` : ''}
+              ${w.vintage ? `<span class="pill pill-vintage">${esc(w.vintage)}</span>` : ''}
+              ${w.country ? `<span class="pill pill-country">${countryFlag(w.country)} ${esc(w.country)}</span>` : ''}
               ${w.archived ? '<span class="pill pill-archived">Archived</span>' : ''}
             </div>
           </div>
           <div class="wine-footer">
             <div class="stars">${starsHtml(w.rating)}</div>
-            <div class="wine-price">${w.price || ''}</div>
+            <div class="wine-price">${esc(w.price)}</div>
           </div>
         </div>
       </div>
@@ -856,6 +938,12 @@ function renderCellar() {
 }
 
 // ── HELPERS ──
+function esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function qtyOf(w) { return Math.max(1, Number(w.quantity) || 1); }
+function priceNum(p) { const m = String(p || '').replace(/,/g, '').match(/\d+(\.\d+)?/); return m ? parseFloat(m[0]) : 0; }
+function setSort(v) { sortMode = v; try { localStorage.setItem('mc_sort', v); } catch (e) {} renderCellar(); }
 function typeEmoji(type) {
   return {White:'🥂',Red:'🍷',Rosé:'🌸',Sparkling:'🍾',Dessert:'🍯',Orange:'🍊'}[type] || '🍷';
 }
@@ -882,37 +970,70 @@ function openDetail(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-detail').classList.add('active');
   document.getElementById('fab').style.display = 'none';
+  document.getElementById('bottom-nav').style.display = 'none';
+  renderDetail(id);
+}
 
+function renderDetail(id) {
+  const w = wines.find(x => x.id === id);
+  if (!w) return;
   const hero = document.getElementById('detail-hero');
   hero.innerHTML = w.photo
-    ? `<img src="${w.photo}" alt="${w.name}">`
+    ? `<img src="${esc(w.photo)}" alt="${esc(w.name)}">`
     : `<div class="detail-hero-placeholder">${typeEmoji(w.type)}</div>`;
   hero.style.background = w.photo ? '#111' : 'var(--bg2)';
 
   document.getElementById('detail-name').textContent = w.name;
   document.getElementById('detail-producer').textContent = w.producer || '';
   document.getElementById('detail-pills').innerHTML = `
-    <span class="pill pill-type">${w.type}</span>
-    ${w.vintage ? `<span class="pill pill-vintage">${w.vintage}</span>` : ''}
-    ${w.country ? `<span class="pill pill-country">${countryFlag(w.country)} ${w.country}</span>` : ''}
+    <span class="pill pill-type">${esc(w.type)}</span>
+    ${w.vintage ? `<span class="pill pill-vintage">${esc(w.vintage)}</span>` : ''}
+    ${w.country ? `<span class="pill pill-country">${countryFlag(w.country)} ${esc(w.country)}</span>` : ''}
     ${w.archived ? '<span class="pill pill-archived">Archived</span>' : ''}
   `;
   document.getElementById('detail-grid').innerHTML = `
-    <div class="detail-stat"><div class="detail-stat-label">Grape</div><div class="detail-stat-value" style="font-size:14px;font-family:'DM Sans',sans-serif;">${w.grape || '—'}</div></div>
-    <div class="detail-stat"><div class="detail-stat-label">Region</div><div class="detail-stat-value" style="font-size:14px;font-family:'DM Sans',sans-serif;">${w.region || '—'}</div></div>
-    <div class="detail-stat"><div class="detail-stat-label">Drink by</div><div class="detail-stat-value" style="font-size:16px;">${w.drink_window || '—'}</div></div>
-    <div class="detail-stat"><div class="detail-stat-label">Avg Price</div><div class="detail-stat-value" style="font-size:16px;">${w.price || '—'}</div></div>
+    <div class="detail-stat"><div class="detail-stat-label">Grape</div><div class="detail-stat-value" style="font-size:14px;font-family:'DM Sans',sans-serif;">${esc(w.grape) || '—'}</div></div>
+    <div class="detail-stat"><div class="detail-stat-label">Region</div><div class="detail-stat-value" style="font-size:14px;font-family:'DM Sans',sans-serif;">${esc(w.region) || '—'}</div></div>
+    <div class="detail-stat"><div class="detail-stat-label">Drink by</div><div class="detail-stat-value" style="font-size:16px;">${esc(w.drink_window) || '—'}</div></div>
+    <div class="detail-stat"><div class="detail-stat-label">Avg Price</div><div class="detail-stat-value" style="font-size:16px;">${esc(w.price) || '—'}</div></div>
   `;
+  document.getElementById('detail-qty').innerHTML = w.archived
+    ? `<div class="qty-label">This bottle is in your archive</div>`
+    : `<div class="qty-label">In your cellar</div>
+       <button class="qty-btn" onclick="adjustQty(${w.id},-1)" aria-label="Open a bottle">−</button>
+       <div class="qty-num">${qtyOf(w)}</div>
+       <button class="qty-btn" onclick="adjustQty(${w.id},1)" aria-label="Add a bottle">+</button>`;
   document.getElementById('detail-stars').innerHTML = starsInteractive(w.rating, w.id);
   const notesWrap = document.getElementById('detail-notes-wrap');
   if (w.notes) { notesWrap.style.display = 'block'; document.getElementById('detail-notes').textContent = w.notes; }
   else notesWrap.style.display = 'none';
 
   document.getElementById('detail-actions').innerHTML = !w.archived
-    ? `<button class="btn btn-danger" onclick="archiveWine(${w.id})">📦 Archive (I finished this bottle)</button>
-       <button class="btn btn-secondary" onclick="deleteWine(${w.id})">🗑 Remove from Collection</button>`
-    : `<button class="btn btn-primary" onclick="unarchiveWine(${w.id})">↩ Move back to Cellar</button>
-       <button class="btn btn-secondary" onclick="deleteWine(${w.id})">🗑 Remove completely</button>`;
+    ? `<button class="btn btn-primary" onclick="openEditSheet(${w.id})">✏️ Edit details</button>
+       <div class="btn-row">
+         <button class="btn btn-danger" onclick="archiveWine(${w.id})">📦 Finished</button>
+         <button class="btn btn-secondary" onclick="deleteWine(${w.id})">🗑 Remove</button>
+       </div>`
+    : `<button class="btn btn-primary" onclick="openEditSheet(${w.id})">✏️ Edit details</button>
+       <div class="btn-row">
+         <button class="btn btn-secondary" onclick="unarchiveWine(${w.id})">↩ To cellar</button>
+         <button class="btn btn-secondary" onclick="deleteWine(${w.id})">🗑 Remove</button>
+       </div>`;
+}
+
+async function adjustQty(id, delta) {
+  const w = wines.find(x => x.id === id);
+  if (!w) return;
+  const next = qtyOf(w) + delta;
+  if (next < 1) {
+    if (confirm('That was your last bottle. Move it to the Archive?')) await archiveWine(id);
+    return;
+  }
+  if (next > 999) return;
+  w.quantity = next;
+  renderDetail(id);
+  await updateWineInDb(id, { quantity: next });
+  showToast(delta < 0 ? 'Bottle opened 🍷' : 'Bottle added');
 }
 
 async function rateWine(id, rating) {
@@ -953,6 +1074,7 @@ async function deleteWine(id) {
 }
 
 function goBack() {
+  document.getElementById('bottom-nav').style.display = 'flex';
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-' + previousScreen).classList.add('active');
   const navMap = { cellar:0, discover:1, profile:2 };
@@ -964,15 +1086,45 @@ function goBack() {
 }
 
 // ── ADD WINE ──
-function openAddSheet() { document.getElementById('add-overlay').classList.add('open'); resetForm(); }
+function openAddSheet() {
+  editingId = null; existingPhotoUrl = null;
+  resetForm();
+  document.getElementById('sheet-title').textContent = 'Add a Bottle';
+  document.getElementById('save-btn').textContent = 'Save to Cellar';
+  document.getElementById('add-overlay').classList.add('open');
+}
+
+function openEditSheet(id) {
+  const w = wines.find(x => x.id === id);
+  if (!w) return;
+  resetForm();
+  editingId = id;
+  existingPhotoUrl = w.photo || null;
+  const set = (k, v) => { document.getElementById(k).value = v == null ? '' : v; };
+  set('f-name', w.name); set('f-producer', w.producer); set('f-grape', w.grape); set('f-vintage', w.vintage);
+  set('f-region', w.region); set('f-country', w.country); set('f-price', w.price); set('f-notes', w.notes);
+  set('f-qty', qtyOf(w)); set('f-drink', w.drink_window);
+  if (w.type) document.getElementById('f-type').value = w.type;
+  formRating = w.rating || 0; updateFormStars();
+  if (w.photo) {
+    document.getElementById('photo-preview-img').src = w.photo;
+    document.getElementById('photo-preview-wrap').style.display = 'block';
+    document.getElementById('photo-upload-zone').style.display = 'none';
+  }
+  document.getElementById('sheet-title').textContent = 'Edit Bottle';
+  document.getElementById('save-btn').textContent = 'Save changes';
+  document.getElementById('add-overlay').classList.add('open');
+}
 function closeAdd() { document.getElementById('add-overlay').classList.remove('open'); }
 function closeAddOverlay(e) { if (e.target === document.getElementById('add-overlay')) closeAdd(); }
 
 function resetForm() {
-  ['f-name','f-producer','f-grape','f-vintage','f-region','f-country','f-price','f-notes'].forEach(id => { document.getElementById(id).value = ''; });
+  ['f-name','f-producer','f-grape','f-vintage','f-region','f-country','f-price','f-notes','f-drink'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('f-qty').value = '1';
   document.getElementById('f-type').value = 'White';
   formRating = 0; updateFormStars();
   uploadedPhotoData = null;
+  document.getElementById('photo-input').value = '';
   document.getElementById('photo-preview-wrap').style.display = 'none';
   document.getElementById('photo-upload-zone').style.display = 'block';
   document.getElementById('ai-loading').classList.remove('show');
@@ -999,7 +1151,7 @@ async function handlePhotoUpload(e) {
     document.getElementById('photo-preview-img').src = uploadedPhotoData;
     document.getElementById('photo-preview-wrap').style.display = 'block';
     document.getElementById('photo-upload-zone').style.display = 'none';
-    analyzeLabel(forAnalysis);
+    if (!editingId) analyzeLabel(forAnalysis);   // when editing, never overwrite the user's fields
   } catch (err) {
     console.error('Photo error:', err);
     showToast('Could not load that photo — try another');
@@ -1008,6 +1160,7 @@ async function handlePhotoUpload(e) {
 
 function removePhoto() {
   uploadedPhotoData = null;
+  existingPhotoUrl = null;   // when editing, saving now removes the stored photo
   document.getElementById('photo-preview-wrap').style.display = 'none';
   document.getElementById('photo-upload-zone').style.display = 'block';
   document.getElementById('photo-input').value = '';
@@ -1019,9 +1172,10 @@ async function analyzeLabel(imageData) {
     const base64 = imageData.split(',')[1];
     const mediaType = imageData.split(';')[0].split(':')[1];
 
+    const { data: { session: aiSession } } = await db.auth.getSession();
     const response = await fetch('/api/analyze', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (aiSession?.access_token || '') },
       body: JSON.stringify({ image: base64, mediaType })
     });
 
@@ -1106,101 +1260,135 @@ async function deleteWinePhoto(url) {
 }
 
 async function saveWine() {
-  const name = document.getElementById('f-name').value.trim();
+  const val = id => document.getElementById(id).value.trim();
+  const name = val('f-name');
   if (!name) { showToast('Please enter a wine name'); return; }
 
-  const saveBtn = document.querySelector('#add-overlay .btn-primary');
-  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving…'; }
+  const saveBtn = document.getElementById('save-btn');
+  const idleLabel = editingId ? 'Save changes' : 'Save to Cellar';
+  saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
 
   try {
-    // Re-fetch session to make sure we have a valid token
     const { data: { session }, error: sessionError } = await db.auth.getSession();
     if (sessionError || !session) {
       showToast('Session expired — please sign in again');
-      if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save to Cellar'; }
       doLogout();
       return;
     }
-
     currentUser = session.user;
 
-    let photoUrl = null;
+    let photoUrl = existingPhotoUrl;
     if (uploadedPhotoData) {
-      photoUrl = await uploadWinePhoto(uploadedPhotoData, currentUser.id);
-      if (!photoUrl) showToast('Photo could not be saved — wine saved without it');
+      const uploaded = await uploadWinePhoto(uploadedPhotoData, currentUser.id);
+      if (uploaded) photoUrl = uploaded;
+      else showToast('Photo could not be saved');
     }
 
-    const wine = {
-      user_id: currentUser.id,
+    const fields = {
       name,
-      producer: document.getElementById('f-producer').value.trim(),
-      grape: document.getElementById('f-grape').value.trim(),
-      vintage: document.getElementById('f-vintage').value.trim(),
-      region: document.getElementById('f-region').value.trim(),
-      country: document.getElementById('f-country').value.trim(),
+      producer: val('f-producer'), grape: val('f-grape'), vintage: val('f-vintage'),
+      region: val('f-region'), country: val('f-country'),
       type: document.getElementById('f-type').value,
-      price: document.getElementById('f-price').value.trim(),
-      rating: formRating,
-      notes: document.getElementById('f-notes').value.trim(),
-      archived: false,
+      price: val('f-price'), rating: formRating, notes: val('f-notes'),
+      drink_window: val('f-drink'),
+      quantity: Math.min(999, Math.max(1, parseInt(val('f-qty'), 10) || 1)),
       photo: photoUrl,
-      drink_window: '',
-      added_date: new Date().toISOString().split('T')[0],
     };
 
-    console.log('Saving wine:', wine.name, 'for user:', wine.user_id);
-
-    const { data, error } = await db.from('wines').insert([wine]).select().single();
-
-    if (error) {
-      console.error('Insert error:', JSON.stringify(error));
-      showToast('Error: ' + (error.message || 'Could not save'));
-      return;
+    if (editingId) {
+      const old = wines.find(x => x.id === editingId);
+      const { data, error } = await db.from('wines').update(fields).eq('id', editingId).eq('user_id', currentUser.id).select().single();
+      if (error) { console.error('Update error:', error); showToast('Error: ' + (error.message || 'Could not save')); return; }
+      if (old && old.photo && old.photo !== photoUrl) deleteWinePhoto(old.photo);
+      wines = wines.map(x => x.id === editingId ? data : x);
+      const id = editingId;
+      closeAdd();
+      renderCellar();
+      if (document.getElementById('screen-detail').classList.contains('active')) renderDetail(id);
+      showToast('Changes saved ✓');
+    } else {
+      const wine = { user_id: currentUser.id, ...fields, archived: false, added_date: new Date().toISOString().split('T')[0] };
+      const { data, error } = await db.from('wines').insert([wine]).select().single();
+      if (error) { console.error('Insert error:', error); showToast('Error: ' + (error.message || 'Could not save')); return; }
+      wines.unshift(data);
+      closeAdd();
+      renderCellar();
+      showToast('Added to your cellar 🍷');
     }
-
-    console.log('Saved successfully:', data);
-    wines.unshift(data);
-    closeAdd();
-    renderCellar();
-    showToast('Added to your cellar 🍷');
-
-  } catch(e) {
-    console.error('Unexpected error:', e.message);
+  } catch (e) {
+    console.error('Unexpected error:', e);
     showToast('Unexpected error — try again');
   } finally {
-    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save to Cellar'; }
+    saveBtn.disabled = false; saveBtn.textContent = idleLabel;
   }
 }
 
-// ── DISCOVER ──
+// ── DISCOVER + AI SOMMELIER ──
 function renderDiscover() {
-  const recs = [
-    { emoji:'🥂', name:'Chablis Premier Cru', note:'Since you love Sancerre & Burgundy Chardonnay' },
-    { emoji:'🍷', name:'Grüner Veltliner, Smaragd', note:'Great match for your Alto Adige whites' },
-    { emoji:'🌸', name:'Bandol Rosé', note:'Step up from your Côtes de Provence' },
-    { emoji:'🥂', name:'Vermentino di Sardegna', note:'You\'ll love it if you enjoy the Grillo' },
-  ];
-  document.getElementById('discover-recs').innerHTML = recs.map(r => `
-    <div style="background:var(--bg2);border-radius:var(--radius);padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px;">
-      <div style="font-size:32px;">${r.emoji}</div>
-      <div><div style="font-family:'DM Serif Display',serif;font-size:16px;color:var(--ink);margin-bottom:3px;">${r.name}</div>
-      <div style="font-size:12px;color:var(--ink3);">${r.note}</div></div>
-    </div>`).join('');
-
   const countries = {};
-  wines.filter(w => !w.archived).forEach(w => { if(w.country) countries[w.country] = (countries[w.country]||0)+1; });
-  const sorted = Object.entries(countries).sort((a,b)=>b[1]-a[1]);
-  const max = sorted[0]?.[1]||1;
-  document.getElementById('region-breakdown').innerHTML = sorted.length ? sorted.map(([c,count])=>`
+  wines.filter(w => !w.archived).forEach(w => { if (w.country) countries[w.country] = (countries[w.country] || 0) + qtyOf(w); });
+  const sorted = Object.entries(countries).sort((a, b) => b[1] - a[1]);
+  const max = sorted[0]?.[1] || 1;
+  document.getElementById('region-breakdown').innerHTML = sorted.length ? sorted.map(([c, count]) => `
     <div style="margin-bottom:12px;">
       <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
-        <span style="font-size:13px;color:var(--ink);">${countryFlag(c)} ${c}</span>
-        <span style="font-size:12px;color:var(--ink3);font-weight:500;">${count} bottle${count>1?'s':''}</span>
+        <span style="font-size:13px;color:var(--ink);">${countryFlag(c)} ${esc(c)}</span>
+        <span style="font-size:12px;color:var(--ink3);font-weight:500;">${count} bottle${count > 1 ? 's' : ''}</span>
       </div>
       <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
-        <div style="height:100%;width:${Math.round(count/max*100)}%;background:var(--accent);border-radius:3px;"></div>
+        <div style="height:100%;width:${Math.round(count / max * 100)}%;background:var(--accent);border-radius:3px;"></div>
       </div>
     </div>`).join('') : '<div style="font-size:13px;color:var(--ink3);text-align:center;">Add wines to see your breakdown</div>';
+}
+
+let aiBusy = false;
+async function askSommelier(mode) {
+  if (aiBusy) return;
+  aiBusy = true;
+  const out = document.getElementById('ai-result');
+  const btns = [...document.querySelectorAll('.sommelier-btns .btn')];
+  btns.forEach(b => b.disabled = true);
+  out.innerHTML = '<div class="ai-intro">🍷 Asking the sommelier…</div>';
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) { out.innerHTML = '<div class="ai-intro">Please sign in again.</div>'; return; }
+    const source = mode === 'explore' ? wines : wines.filter(w => !w.archived);
+    const cellar = source.map(w => ({ id: w.id, name: w.name, producer: w.producer, grape: w.grape, vintage: w.vintage, region: w.region, country: w.country, type: w.type, price: w.price, rating: w.rating, qty: qtyOf(w), notes: w.notes }));
+    const r = await fetch('/api/sommelier', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+      body: JSON.stringify({ mode, prompt: document.getElementById('ai-prompt').value.trim(), cellar })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || data.error) { out.innerHTML = `<div class="ai-intro">${esc(data.error || 'Something went wrong — please try again.')}</div>`; return; }
+    const intro = data.intro ? `<div class="ai-intro">${esc(data.intro)}</div>` : '';
+    const picks = (data.picks || []).map(p => {
+      if (mode === 'cellar') {
+        const w = wines.find(x => x.id === Number(p.id));
+        if (!w) return '';
+        const meta = [w.producer, w.vintage, w.region].filter(Boolean).map(esc).join(' · ');
+        return `<div class="ai-pick">
+          <div class="ai-pick-name">${esc(w.name)}</div>
+          <div class="ai-pick-meta">${meta}</div>
+          <div class="ai-pick-reason">${esc(p.reason)}</div>
+          ${p.serving ? `<div class="ai-pick-serving">🌡 ${esc(p.serving)}</div>` : ''}
+          <span class="ai-pick-open" onclick="openDetail(${w.id})">View bottle →</span>
+        </div>`;
+      }
+      return `<div class="ai-pick">
+        <div class="ai-pick-name">${esc(p.name)}</div>
+        ${p.price ? `<div class="ai-pick-meta">${esc(p.price)}</div>` : ''}
+        <div class="ai-pick-reason">${esc(p.reason)}</div>
+      </div>`;
+    }).join('');
+    out.innerHTML = intro + (picks || '<div class="ai-intro">I couldn\'t find a match this time — try rephrasing.</div>');
+  } catch (e) {
+    console.error('Sommelier error:', e);
+    out.innerHTML = '<div class="ai-intro">Could not reach the sommelier. Check your connection and try again.</div>';
+  } finally {
+    aiBusy = false;
+    btns.forEach(b => b.disabled = false);
+  }
 }
 
 // ── PROFILE ──
@@ -1215,7 +1403,7 @@ function renderProfile() {
   document.getElementById('profile-name').textContent = email.split('@')[0] || 'Wine Lover';
   document.getElementById('profile-email').textContent = email;
   document.getElementById('profile-stats').innerHTML = `
-    <div class="profile-stat"><div class="profile-stat-num">${active.length}</div><div class="profile-stat-lbl">In Cellar</div></div>
+    <div class="profile-stat"><div class="profile-stat-num">${active.reduce((n, w) => n + qtyOf(w), 0)}</div><div class="profile-stat-lbl">In Cellar</div></div>
     <div class="profile-stat"><div class="profile-stat-num">${archived.length}</div><div class="profile-stat-lbl">Archived</div></div>
     <div class="profile-stat"><div class="profile-stat-num">${avg}</div><div class="profile-stat-lbl">Avg ⭐</div></div>
   `;
@@ -1231,7 +1419,14 @@ function showToast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
 }
 
-init();
+function showFatal() { const f = document.getElementById('fatal'); if (f) f.classList.add('show'); }
+async function resetApp() {
+  try { await db.auth.signOut(); } catch (e) {}
+  try { localStorage.clear(); sessionStorage.clear(); } catch (e) {}
+  location.reload();
+}
+window.addEventListener('unhandledrejection', e => console.error('Unhandled rejection:', e.reason));
+init().catch(err => { console.error('Init failed:', err); document.getElementById('full-loader').style.display = 'none'; showFatal(); });
 </script>
 </body>
 </html>
