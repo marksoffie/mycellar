@@ -1128,12 +1128,20 @@ function goBack() {
 }
 
 // ── ADD WINE ──
+function sheetToTop() {
+  const sh = document.querySelector('#add-overlay .sheet');
+  if (!sh) return;
+  sh.scrollTop = 0;
+  requestAnimationFrame(() => { sh.scrollTop = 0; });
+}
+
 function openAddSheet() {
   editingId = null; existingPhotoUrl = null;
   resetForm();
   document.getElementById('sheet-title').textContent = 'Add a Bottle';
   document.getElementById('save-btn').textContent = 'Save to Cellar';
   document.getElementById('add-overlay').classList.add('open');
+  sheetToTop();
 }
 
 function openEditSheet(id) {
@@ -1156,8 +1164,9 @@ function openEditSheet(id) {
   document.getElementById('sheet-title').textContent = 'Edit Bottle';
   document.getElementById('save-btn').textContent = 'Save changes';
   document.getElementById('add-overlay').classList.add('open');
+  sheetToTop();
 }
-function closeAdd() { document.getElementById('add-overlay').classList.remove('open'); }
+function closeAdd() { document.getElementById('add-overlay').classList.remove('open'); sheetToTop(); }
 function closeAddOverlay(e) { if (e.target === document.getElementById('add-overlay')) closeAdd(); }
 
 function resetForm() {
@@ -1182,6 +1191,7 @@ function updateFormStars() {
 async function handlePhotoUpload(e) {
   const file = e.target.files[0];
   if (!file) return;
+  sheetToTop();
   try {
     const original = await new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1195,6 +1205,7 @@ async function handlePhotoUpload(e) {
     document.getElementById('photo-preview-img').src = uploadedPhotoData;
     document.getElementById('photo-preview-wrap').style.display = 'block';
     document.getElementById('photo-upload-zone').style.display = 'none';
+    sheetToTop();
     if (!editingId) analyzeLabel(forAnalysis);   // when editing, never overwrite the user's fields
   } catch (err) {
     console.error('Photo error:', err);
