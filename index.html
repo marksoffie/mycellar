@@ -272,6 +272,11 @@ body {
 .fatal { position:fixed; inset:0; background:var(--bg); z-index:300; display:none; flex-direction:column; align-items:center; justify-content:center; padding:32px; text-align:center; gap:14px; }
 .fatal.show { display:flex; }
 .fatal .btn { max-width:280px; }
+.dup-banner { background:#fff7e6; border:1px solid #f0d9a8; border-radius:var(--radius); padding:14px; margin-bottom:16px; }
+.dup-title { font-weight:500; font-size:14px; color:var(--ink); margin-bottom:4px; }
+.dup-sub { font-size:13px; color:var(--ink2); line-height:1.45; margin-bottom:12px; }
+.dup-actions { display:flex; gap:8px; }
+.dup-actions .btn { padding:11px 8px; font-size:13px; margin-top:0; flex:1; }
 .detail-actions .btn { margin-top:0; }
 .detail-actions .btn-row { display:flex; gap:10px; }
 .detail-actions .btn-row .btn { flex:1; padding:13px 8px; font-size:14px; }
@@ -510,6 +515,7 @@ body {
       <div class="ai-spinner"></div>
       Reading label with AI…
     </div>
+    <div class="dup-banner" id="dup-banner" style="display:none;"></div>
     <div class="form-group"><label class="form-label">Wine Name *</label><input class="form-input" id="f-name" placeholder="e.g. La Forêt Gasselin" type="text"></div>
     <div class="form-group"><label class="form-label">Producer</label><input class="form-input" id="f-producer" placeholder="e.g. Régis & Laurent Godelu" type="text"></div>
     <div class="form-row">
@@ -580,6 +586,7 @@ let currentWineId = null;
 let formRating = 0;
 let uploadedPhotoData = null;
 let editingId = null;
+let dupDecision = null;
 let existingPhotoUrl = null;
 let sortMode = 'newest';
 try { sortMode = localStorage.getItem('mc_sort') || 'newest'; } catch (e) {}
@@ -1128,6 +1135,8 @@ function resetForm() {
   document.getElementById('photo-preview-wrap').style.display = 'none';
   document.getElementById('photo-upload-zone').style.display = 'block';
   document.getElementById('ai-loading').classList.remove('show');
+  dupDecision = null;
+  const dupEl = document.getElementById('dup-banner'); if (dupEl) dupEl.style.display = 'none';
 }
 
 function setFormRating(r) { formRating = r; updateFormStars(); }
@@ -1204,7 +1213,8 @@ async function analyzeLabel(imageData) {
     if (info.type) document.getElementById('f-type').value = info.type;
     if (info.price) document.getElementById('f-price').value = info.price;
     if (info.notes) document.getElementById('f-notes').value = info.notes;
-    showToast('Label read successfully ✨');
+    if (showDupBanner()) showToast('You already have this wine');
+    else showToast('Label read successfully ✨');
   } catch(e) {
     console.error('Analyze error:', e);
     showToast('Could not read label — fill in manually');
@@ -1263,6 +1273,11 @@ async function saveWine() {
   const val = id => document.getElementById(id).value.trim();
   const name = val('f-name');
   if (!name) { showToast('Please enter a wine name'); return; }
+  if (!editingId && dupDecision !== 'separate' && showDupBanner()) {
+    showToast('You already have this wine — choose below');
+    document.getElementById('dup-banner').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
 
   const saveBtn = document.getElementById('save-btn');
   const idleLabel = editingId ? 'Save changes' : 'Save to Cellar';
@@ -1320,6 +1335,98 @@ async function saveWine() {
     showToast('Unexpected error — try again');
   } finally {
     saveBtn.disabled = false; saveBtn.textContent = idleLabel;
+  }
+}
+
+// ── DUPLICATE DETECTION ──
+function normName(v) {
+  return String(v == null ? '' : v).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Same wine = same name, same vintage (when both are known) and a compatible producer.
+function findDuplicate() {
+  if (editingId) return null;
+  const name = normName(document.getElementById('f-name').value);
+  if (!name) return null;
+  const vint = document.getElementById('f-vintage').value.trim();
+  const prod = normName(document.getElementById('f-producer').value);
+  const matches = wines.filter(w => {
+    if (normName(w.name) !== name) return false;
+    const wv = String(w.vintage || '').trim();
+    if (vint && wv && vint !== wv) return false;
+    const wp = normName(w.producer);
+    if (prod && wp && prod !== wp && !prod.includes(wp) && !wp.includes(prod)) return false;
+    return true;
+  });
+  // Prefer a bottle that is currently in the cellar, then the most recent entry.
+  matches.sort((a, b) => (a.archived ? 1 : 0) - (b.archived ? 1 : 0) || b.id - a.id);
+  return matches[0] || null;
+}
+
+function showDupBanner() {
+  const el = document.getElementById('dup-banner');
+  if (!el) return false;
+  const d = dupDecision === 'separate' ? null : findDuplicate();
+  if (!d) { el.style.display = 'none'; return false; }
+  const label = [d.name, d.vintage].filter(Boolean).map(esc).join(' ');
+  const where = d.archived ? 'in your <b>Archive</b>' : `in your cellar (×${qtyOf(d)})`;
+  const sub = d.archived
+    ? 'Add it back to your cellar? It leaves the Archive and keeps the notes and rating you saved.'
+    : 'Add these bottles to the one you already have? Your notes and rating stay exactly as they are.';
+  el.innerHTML = `<div class="dup-title">⚠️ You already have this wine</div>
+    <div class="dup-sub"><b>${label}</b> is ${where}. ${sub}</div>
+    <div class="dup-actions">
+      <button class="btn btn-primary" onclick="mergeDuplicate(${d.id})">${d.archived ? 'Add back to cellar' : 'Add to existing'}</button>
+      <button class="btn btn-secondary" onclick="keepSeparate()">Save as new</button>
+    </div>`;
+  el.style.display = 'block';
+  return true;
+}
+
+function keepSeparate() {
+  dupDecision = 'separate';
+  document.getElementById('dup-banner').style.display = 'none';
+  showToast('OK — it will be saved as a new entry');
+}
+
+async function mergeDuplicate(id) {
+  const d = wines.find(x => x.id === id);
+  if (!d) return;
+  const btns = [...document.querySelectorAll('#dup-banner .btn')];
+  btns.forEach(b => b.disabled = true);
+  try {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) { showToast('Session expired — please sign in again'); return; }
+    currentUser = session.user;
+
+    const val = k => document.getElementById(k).value.trim();
+    const addQty = Math.min(999, Math.max(1, parseInt(val('f-qty'), 10) || 1));
+    const updates = {};
+    if (d.archived) { updates.archived = false; updates.archived_date = null; updates.quantity = addQty; }
+    else updates.quantity = Math.min(999, qtyOf(d) + addQty);
+
+    // Never overwrite what you already saved (notes, rating, price...). Only fill in blanks.
+    const fill = (k, v) => { if (!String(d[k] || '').trim() && v) updates[k] = v; };
+    fill('producer', val('f-producer')); fill('grape', val('f-grape')); fill('vintage', val('f-vintage'));
+    fill('region', val('f-region')); fill('country', val('f-country')); fill('price', val('f-price'));
+    fill('drink_window', val('f-drink')); fill('notes', val('f-notes'));
+    if (!(d.rating > 0) && formRating > 0) updates.rating = formRating;
+    if (!d.photo && uploadedPhotoData) {
+      const url = await uploadWinePhoto(uploadedPhotoData, currentUser.id);
+      if (url) updates.photo = url;
+    }
+
+    const { data, error } = await db.from('wines').update(updates).eq('id', id).eq('user_id', currentUser.id).select().single();
+    if (error) { console.error('Merge error:', error); showToast('Error: ' + (error.message || 'Could not save')); return; }
+    wines = wines.map(x => x.id === id ? data : x);
+    closeAdd();
+    renderCellar();
+    showToast(d.archived ? 'Back in your cellar — notes kept 🍷' : `Added to your cellar (now ×${qtyOf(data)})`);
+  } catch (e) {
+    console.error('Merge failed:', e);
+    showToast('Unexpected error — try again');
+  } finally {
+    btns.forEach(b => b.disabled = false);
   }
 }
 
