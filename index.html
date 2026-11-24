@@ -500,6 +500,18 @@ body {
 <button class="fab" id="fab" style="display:none;" onclick="openAddSheet()">+</button>
 
 <!-- ADD WINE OVERLAY -->
+<div class="overlay" id="pk-overlay" style="z-index:70;">
+  <div class="sheet" style="text-align:center;">
+    <div class="sheet-handle"></div>
+    <div style="font-size:44px;margin:6px 0 8px;">🔑</div>
+    <div class="sheet-title" style="margin-bottom:8px;">Sign in faster with Face ID?</div>
+    <div style="font-size:14px;color:var(--ink2);line-height:1.5;margin-bottom:20px;">Save a passkey on this phone and next time you can open MyCellar with Face ID instead of typing your password.</div>
+    <button class="btn btn-primary" id="pk-enable-btn" onclick="pkPromptEnable()">Enable Face ID</button>
+    <button class="btn btn-secondary" style="margin-top:10px;" onclick="pkPromptClose(false)">Not now</button>
+    <div style="margin-top:14px;font-size:12px;color:var(--ink3);cursor:pointer;" onclick="pkPromptClose(true)">Don't ask again</div>
+  </div>
+</div>
+
 <div class="overlay" id="add-overlay" onclick="closeAddOverlay(event)">
   <div class="sheet">
     <div class="sheet-handle"></div>
@@ -658,7 +670,7 @@ async function init() {
 
 // ── AUTH ──
 function showAuthScreen() {
-  const pb = document.getElementById('passkey-btn'); if (pb) pb.style.display = passkeysSupported ? 'block' : 'none';
+  const pb = document.getElementById('passkey-btn'); if (pb) pb.style.display = (passkeysSupported && lsGet('mc_passkey') === '1') ? 'block' : 'none';
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-auth').classList.add('active');
   document.getElementById('bottom-nav').style.display = 'none';
@@ -764,6 +776,7 @@ async function doLogin() {
   btn.disabled = true; btn.textContent = 'Signing in…';
   errEl.textContent = '';
   const { error } = await db.auth.signInWithPassword({ email, password });
+  if (!error) justPasswordLogin = true;
   if (error) { errEl.textContent = error.message; btn.disabled = false; btn.textContent = 'Sign In →'; }
 }
 
@@ -869,11 +882,33 @@ async function doPasskeyLogin() {
   btn.disabled = false;
 }
 
+let justPasswordLogin = false;
+function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+function maybeOfferPasskey() {
+  if (!passkeysSupported || !justPasswordLogin) return;
+  justPasswordLogin = false;
+  if (lsGet('mc_passkey') === '1' || lsGet('mc_passkey_no') === '1') return;
+  setTimeout(() => document.getElementById('pk-overlay').classList.add('open'), 600);
+}
+function pkPromptClose(never) {
+  if (never) lsSet('mc_passkey_no', '1');
+  document.getElementById('pk-overlay').classList.remove('open');
+}
+async function pkPromptEnable() {
+  const btn = document.getElementById('pk-enable-btn');
+  btn.disabled = true;
+  document.getElementById('pk-overlay').classList.remove('open');
+  await addPasskey();
+  btn.disabled = false;
+}
+
 async function addPasskey() {
   try {
     const { error } = await platformRegister();
     if (error) showToast(passkeyCancelled(error) ? 'Cancelled' : 'Could not set up Face ID: ' + (error.message || 'error'));
-    else showToast('Face ID enabled — use it next time you sign in 🔑');
+    else { lsSet('mc_passkey', '1'); showToast('Face ID enabled — use it next time you sign in 🔑'); }
   } catch (e) {
     showToast(passkeyCancelled(e) ? 'Cancelled' : 'Could not set up Face ID on this device');
   }
@@ -895,6 +930,7 @@ async function enterApp() {
   await loadWines();
   renderCellar();
   renderStats();
+  maybeOfferPasskey();
 }
 
 // ── LOAD / SAVE WINES ──
