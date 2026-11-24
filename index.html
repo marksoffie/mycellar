@@ -313,7 +313,7 @@ body {
       </div>
       <div class="auth-error" id="login-error"></div>
       <button class="auth-btn" id="login-btn" onclick="doLogin()">Sign In →</button>
-      <button class="auth-btn" id="passkey-btn" onclick="doPasskeyLogin()" style="display:none;background:transparent;color:var(--accent);border:1.5px solid var(--accent);margin-top:10px;">🔑 Sign in with Face ID / passkey</button>
+      <button class="auth-btn" id="passkey-btn" onclick="doPasskeyLogin()" style="display:none;background:transparent;color:var(--accent);border:1.5px solid var(--accent);margin-top:10px;">🔑 Sign in with Face ID</button>
     </div>
 
     <div class="auth-form" id="auth-form-forgot" style="display:none;">
@@ -458,7 +458,7 @@ body {
     <div class="profile-stats" id="profile-stats"></div>
     <div class="menu-list">
       <div class="menu-item" id="passkey-menu" onclick="addPasskey()" style="display:none;">
-        <div class="menu-item-left"><span class="menu-icon">🔑</span><span class="menu-item-title">Set up Face ID / passkey</span></div>
+        <div class="menu-item-left"><span class="menu-icon">🔑</span><span class="menu-item-title">Enable Face ID sign-in</span></div>
         <span class="menu-arrow">›</span>
       </div>
       <div class="menu-item" onclick="showToast('Coming soon!')">
@@ -793,27 +793,89 @@ async function doSignup() {
   showToast('Account created! Welcome to MyCellar 🍷');
 }
 
+// ── PASSKEYS (Face ID / Touch ID) ──
+// Supabase's one-call helpers ask for a security-key / phone-QR flow. We run the browser
+// ceremony ourselves so the phone's own Face ID is used directly.
+function b64uToBuf(str) {
+  const pad = '='.repeat((4 - str.length % 4) % 4);
+  const bin = atob((str + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+}
+function bufToB64u(buf) {
+  let bin = ''; const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function passkeyCancelled(e) { return /cancel|abort|NotAllowed|timed out/i.test(String((e && (e.name + ' ' + e.message)) || e || '')); }
+
+async function platformRegister() {
+  const { data: start, error: e1 } = await db.auth.passkey.startRegistration();
+  if (e1 || !start) return { error: e1 || new Error('Could not start') };
+  const o = JSON.parse(JSON.stringify(start.options));
+  delete o.hints;
+  o.authenticatorSelection = { authenticatorAttachment: 'platform', residentKey: 'required', requireResidentKey: true, userVerification: 'required' };
+  o.attestation = 'none';
+  let pk;
+  if (window.PublicKeyCredential && PublicKeyCredential.parseCreationOptionsFromJSON) pk = PublicKeyCredential.parseCreationOptionsFromJSON(o);
+  else {
+    pk = Object.assign({}, o, { challenge: b64uToBuf(o.challenge), user: Object.assign({}, o.user, { id: b64uToBuf(o.user.id) }) });
+    if (o.excludeCredentials) pk.excludeCredentials = o.excludeCredentials.map(c => Object.assign({}, c, { id: b64uToBuf(c.id), type: c.type || 'public-key' }));
+  }
+  const cred = await navigator.credentials.create({ publicKey: pk });
+  const json = (typeof cred.toJSON === 'function') ? cred.toJSON() : {
+    id: cred.id, rawId: cred.id, type: 'public-key',
+    response: { attestationObject: bufToB64u(cred.response.attestationObject), clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+                transports: cred.response.getTransports ? cred.response.getTransports() : undefined },
+    clientExtensionResults: cred.getClientExtensionResults(), authenticatorAttachment: cred.authenticatorAttachment || undefined
+  };
+  return db.auth.passkey.verifyRegistration({ challengeId: start.challenge_id, credential: json });
+}
+
+async function platformSignIn() {
+  const { data: start, error: e1 } = await db.auth.passkey.startAuthentication();
+  if (e1 || !start) return { error: e1 || new Error('Could not start') };
+  const o = JSON.parse(JSON.stringify(start.options));
+  delete o.hints;
+  o.userVerification = 'required';
+  let pk;
+  if (window.PublicKeyCredential && PublicKeyCredential.parseRequestOptionsFromJSON) pk = PublicKeyCredential.parseRequestOptionsFromJSON(o);
+  else {
+    pk = Object.assign({}, o, { challenge: b64uToBuf(o.challenge) });
+    if (o.allowCredentials) pk.allowCredentials = o.allowCredentials.map(c => Object.assign({}, c, { id: b64uToBuf(c.id), type: c.type || 'public-key' }));
+  }
+  const cred = await navigator.credentials.get({ publicKey: pk });
+  const json = (typeof cred.toJSON === 'function') ? cred.toJSON() : {
+    id: cred.id, rawId: cred.id, type: 'public-key',
+    response: { authenticatorData: bufToB64u(cred.response.authenticatorData), clientDataJSON: bufToB64u(cred.response.clientDataJSON),
+                signature: bufToB64u(cred.response.signature), userHandle: cred.response.userHandle ? bufToB64u(cred.response.userHandle) : undefined },
+    clientExtensionResults: cred.getClientExtensionResults(), authenticatorAttachment: cred.authenticatorAttachment || undefined
+  };
+  return db.auth.passkey.verifyAuthentication({ challengeId: start.challenge_id, credential: json });
+}
+
 async function doPasskeyLogin() {
   const errEl = document.getElementById('login-error');
   const btn = document.getElementById('passkey-btn');
   errEl.textContent = '';
   btn.disabled = true;
   try {
-    const { error } = await db.auth.signInWithPasskey();
-    if (error) errEl.textContent = /cancel|abort|NotAllowed/i.test(error.message || '') ? 'Passkey sign-in was cancelled.' : (error.message || 'Passkey sign-in failed.');
+    const { error } = await platformSignIn();
+    if (error) errEl.textContent = passkeyCancelled(error) ? 'Face ID sign-in was cancelled.' : (error.message || 'Face ID sign-in failed.');
   } catch (e) {
-    errEl.textContent = /cancel|abort|NotAllowed/i.test(String(e && (e.name || e.message))) ? 'Passkey sign-in was cancelled.' : 'Passkey sign-in failed. Use your password instead.';
+    errEl.textContent = passkeyCancelled(e) ? 'Face ID sign-in was cancelled.' : 'Face ID sign-in failed. Use your password instead.';
   }
   btn.disabled = false;
 }
 
 async function addPasskey() {
   try {
-    const { error } = await db.auth.registerPasskey();
-    if (error) showToast(/cancel|abort|NotAllowed/i.test(error.message || '') ? 'Cancelled' : 'Could not set up passkey: ' + error.message);
-    else { try { localStorage.setItem('mc_passkey', '1'); } catch (e) {} showToast('Passkey saved — next time use Face ID 🔑'); }
+    const { error } = await platformRegister();
+    if (error) showToast(passkeyCancelled(error) ? 'Cancelled' : 'Could not set up Face ID: ' + (error.message || 'error'));
+    else showToast('Face ID enabled — use it next time you sign in 🔑');
   } catch (e) {
-    showToast(/cancel|abort|NotAllowed/i.test(String(e && (e.name || e.message))) ? 'Cancelled' : 'Could not set up passkey');
+    showToast(passkeyCancelled(e) ? 'Cancelled' : 'Could not set up Face ID on this device');
   }
 }
 
