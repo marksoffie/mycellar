@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>MyCellar</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 :root {
@@ -313,6 +313,7 @@ body {
       </div>
       <div class="auth-error" id="login-error"></div>
       <button class="auth-btn" id="login-btn" onclick="doLogin()">Sign In →</button>
+      <button class="auth-btn" id="passkey-btn" onclick="doPasskeyLogin()" style="display:none;background:transparent;color:var(--accent);border:1.5px solid var(--accent);margin-top:10px;">🔑 Sign in with Face ID / passkey</button>
     </div>
 
     <div class="auth-form" id="auth-form-forgot" style="display:none;">
@@ -456,6 +457,10 @@ body {
     </div>
     <div class="profile-stats" id="profile-stats"></div>
     <div class="menu-list">
+      <div class="menu-item" id="passkey-menu" onclick="addPasskey()" style="display:none;">
+        <div class="menu-item-left"><span class="menu-icon">🔑</span><span class="menu-item-title">Set up Face ID / passkey</span></div>
+        <span class="menu-arrow">›</span>
+      </div>
       <div class="menu-item" onclick="showToast('Coming soon!')">
         <div class="menu-item-left"><span class="menu-icon">📤</span><span class="menu-item-title">Export Collection</span></div>
         <span class="menu-arrow">›</span>
@@ -576,7 +581,12 @@ if (typeof supabase === 'undefined') {
   throw new Error('Supabase library failed to load');
 }
 const { createClient } = supabase;
-const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+const db = createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, experimental: { passkey: true } }
+});
+const passkeysSupported = !!(window.PublicKeyCredential && db.auth && typeof db.auth.signInWithPasskey === 'function');
+// Ask iOS/Chrome not to evict this app's saved login when storage is low.
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
 
 // ── STATE ──
 let wines = [];
@@ -648,6 +658,7 @@ async function init() {
 
 // ── AUTH ──
 function showAuthScreen() {
+  const pb = document.getElementById('passkey-btn'); if (pb) pb.style.display = passkeysSupported ? 'block' : 'none';
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById('screen-auth').classList.add('active');
   document.getElementById('bottom-nav').style.display = 'none';
@@ -780,6 +791,30 @@ async function doSignup() {
   // Mark code as used
   await db.from('beta_codes').update({ used: true, used_at: new Date().toISOString() }).eq('code', code);
   showToast('Account created! Welcome to MyCellar 🍷');
+}
+
+async function doPasskeyLogin() {
+  const errEl = document.getElementById('login-error');
+  const btn = document.getElementById('passkey-btn');
+  errEl.textContent = '';
+  btn.disabled = true;
+  try {
+    const { error } = await db.auth.signInWithPasskey();
+    if (error) errEl.textContent = /cancel|abort|NotAllowed/i.test(error.message || '') ? 'Passkey sign-in was cancelled.' : (error.message || 'Passkey sign-in failed.');
+  } catch (e) {
+    errEl.textContent = /cancel|abort|NotAllowed/i.test(String(e && (e.name || e.message))) ? 'Passkey sign-in was cancelled.' : 'Passkey sign-in failed. Use your password instead.';
+  }
+  btn.disabled = false;
+}
+
+async function addPasskey() {
+  try {
+    const { error } = await db.auth.registerPasskey();
+    if (error) showToast(/cancel|abort|NotAllowed/i.test(error.message || '') ? 'Cancelled' : 'Could not set up passkey: ' + error.message);
+    else { try { localStorage.setItem('mc_passkey', '1'); } catch (e) {} showToast('Passkey saved — next time use Face ID 🔑'); }
+  } catch (e) {
+    showToast(/cancel|abort|NotAllowed/i.test(String(e && (e.name || e.message))) ? 'Cancelled' : 'Could not set up passkey');
+  }
 }
 
 async function doLogout() {
@@ -1500,6 +1535,7 @@ async function askSommelier(mode) {
 
 // ── PROFILE ──
 function renderProfile() {
+  const pm = document.getElementById('passkey-menu'); if (pm) pm.style.display = passkeysSupported ? 'flex' : 'none';
   const active = wines.filter(w => !w.archived);
   const archived = wines.filter(w => w.archived);
   const rated = wines.filter(w => w.rating > 0);
@@ -1532,6 +1568,9 @@ async function resetApp() {
   try { localStorage.clear(); sessionStorage.clear(); } catch (e) {}
   location.reload();
 }
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && appEntered) setTimeout(() => { db.auth.getSession().catch(() => {}); }, 0);
+});
 window.addEventListener('unhandledrejection', e => console.error('Unhandled rejection:', e.reason));
 init().catch(err => { console.error('Init failed:', err); document.getElementById('full-loader').style.display = 'none'; showFatal(); });
 </script>
