@@ -1,11 +1,40 @@
+const SUPABASE_URL = 'https://yoisoqpywoticivriivo.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_WIs6Z_HN4WUSQdCAAQHRVg_A5BhMYVI';
+const hits = new Map();
+
+// Only signed-in MyCellar users may use the label reader (protects your Anthropic credits).
+async function getUser(req) {
+  const h = req.headers['authorization'] || '';
+  const token = h.startsWith('Bearer ') ? h.slice(7) : '';
+  if (!token) return null;
+  const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${token}` }
+  });
+  if (!r.ok) return null;
+  const u = await r.json();
+  return u && u.id ? u : null;
+}
+
+function rateLimited(id, max = 60, windowMs = 60 * 60 * 1000) {
+  const now = Date.now();
+  const recent = (hits.get(id) || []).filter(t => now - t < windowMs);
+  recent.push(now);
+  hits.set(id, recent);
+  return recent.length > max;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   try {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ error: 'Please sign in again.' });
+    if (rateLimited(user.id)) return res.status(429).json({ error: 'Too many requests — try again in a bit.' });
+
     const { image, mediaType } = req.body;
     if (!image) return res.status(400).json({ error: 'No image provided' });
 
